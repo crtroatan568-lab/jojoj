@@ -20,6 +20,19 @@
     body { margin: 0; }
     .totales { page-break-inside: avoid; }
     table { page-break-inside: avoid; }
+    /* Orientación horizontal */
+    @page {
+      size: A4 landscape;
+      margin: 10mm;
+      /* Escala al 50% */
+      zoom: 0.5;
+    }
+    /* Mantener colores en impresión */
+    * {
+      -webkit-print-color-adjust: exact !important;
+      print-color-adjust: exact !important;
+      color-adjust: exact !important;
+    }
   }
 </style>
 </head>
@@ -120,39 +133,55 @@ async function cargarReporte() {
     if (desde && hasta) {
       const d = new Date(desde);
       const h = new Date(hasta);
+      h.setDate(h.getDate() + 1);
       ventas = data.filter(v => {
         const f = new Date(v.FECHA);
-        return f >= d && f <= h;
+        return f >= d && f < h;
       });
     } else {
       ventas = []; // si no hay fechas, mostrar en blanco
     }
+  // Filtrar solo ventas con TIPO DE DOCUMENTO 'EMITIDA'
+  ventas = ventas.filter(v => v["TIPO DE DOCUMENTO"] === "EMITIDA");
+  // Ordenar ventas por fecha ascendente
+  ventas.sort((a, b) => new Date(a.FECHA) - new Date(b.FECHA));
 
     if (ventas.length === 0) {
       contenedor.innerHTML = "<p>No hay ventas registradas en el rango seleccionado.</p>";
       return;
     }
 
-    // Inicializar sumas
-    let totalVentas = 0, totalExonerado = 0, totalExento = 0, totalGravado = 0, totalISV15 = 0, totalISV18 = 0;
+    // Verificar si existe la columna 'isv4' en los datos
+    const tieneISV4 = ventas.some(v => v.hasOwnProperty('isv4'));
+    let totalVentas = 0, totalExonerado = 0, totalExento = 0, totalGravado = 0, totalISV15 = 0, totalISV18 = 0, totalISV4 = 0;
     const filas = ventas.map(v => {
       const exonerado = parseFloat(v["SUB EXONERADO"]) || 0;
       const exento = parseFloat(v["SUB EXENT"]) || 0;
       const gravado = parseFloat(v["SUB GRAVADO"]) || 0;
       const isv15 = gravado * 0.15;
       const isv18 = parseFloat(v["ISV (18%)"]) || 0;
+      const isv4 = tieneISV4 ? (parseFloat(v["isv4"]) || 0) : null;
       const total = parseFloat(v["VENTA TOTAL"]) || 0;
       totalExonerado += exonerado;
       totalExento += exento;
       totalGravado += gravado;
       totalISV15 += isv15;
       totalISV18 += isv18;
+      if (tieneISV4 && isv4 !== null) totalISV4 += isv4;
       totalVentas += total;
+      // Formatear fecha a dd/mm/aaaa
+      let fechaFormateada = '';
+      if (v.FECHA) {
+        const fechaObj = new Date(v.FECHA);
+        const dia = String(fechaObj.getDate()).padStart(2, '0');
+        const mes = String(fechaObj.getMonth() + 1).padStart(2, '0');
+        const anio = fechaObj.getFullYear();
+        fechaFormateada = `${dia}/${mes}/${anio}`;
+      }
       return `<tr>
-        <td>${v.FECHA || ''}</td>
+        <td>${fechaFormateada}</td>
         <td>${v.FACTURA || ''}</td>
         <td>${v.CLIENTE || ''}</td>
-        <td>${v["TIPO DE CLIENTE"] || ''}</td>
         <td>${v.IDENTIDAD || ''}</td>
         <td>${v["lista de productos"] || ''}</td>
         <td>${v["CANTIDAD DE PRODUCTO"] || ''}</td>
@@ -161,6 +190,7 @@ async function cargarReporte() {
         <td>${gravado.toFixed(2)}</td>
         <td>${isv15.toFixed(2)}</td>
         <td>${isv18.toFixed(2)}</td>
+        ${tieneISV4 ? `<td>${isv4 !== null ? isv4.toFixed(2) : '0.00'}</td>` : ''}
         <td>${total.toFixed(2)}</td>
         <td>${v.TIPO_PAGO || ''}</td>
         <td>${v["TIPO DE DOCUMENTO"] || ''}</td>
@@ -175,6 +205,7 @@ async function cargarReporte() {
       <td>${totalGravado.toFixed(2)}</td>
       <td>${totalISV15.toFixed(2)}</td>
       <td>${totalISV18.toFixed(2)}</td>
+      ${tieneISV4 ? `<td>${totalISV4.toFixed(2)}</td>` : ''}
       <td>${totalVentas.toFixed(2)}</td>
       <td colspan="2"></td>
     </tr>`;
@@ -183,9 +214,10 @@ async function cargarReporte() {
       <table>
         <thead>
           <tr>
-            <th>FECHA</th><th>FACTURA</th><th>CLIENTE</th><th>TIPO DE CLIENTE</th>
+            <th>FECHA</th><th>FACTURA</th><th>CLIENTE</th>
             <th>IDENTIDAD</th><th>PRODUCTO</th><th>CANTIDAD</th><th>SUB EXONERADO</th>
             <th>SUB EXENTO</th><th>SUB GRAVADO</th><th>ISV (15%)</th><th>ISV (18%)</th>
+            ${tieneISV4 ? '<th>tas turistica (4%)</th>' : ''}
             <th>TOTAL</th><th>FORMA DE PAGO</th><th>TIPO DOC</th>
           </tr>
         </thead>
@@ -193,7 +225,7 @@ async function cargarReporte() {
       </table>
       <div class="totales">
         <p>Total registros: ${ventas.length}</p>
-        <p><span style="color:#6A1B9A">SUMAS:</span> EXONERADO: <b>L. ${totalExonerado.toFixed(2)}</b> | SUB EXENTO: <b>L. ${totalExento.toFixed(2)}</b> | SUB GRAVADO: <b>L. ${totalGravado.toFixed(2)}</b> | ISV (15%): <b>L. ${totalISV15.toFixed(2)}</b> | ISV (18%): <b>L. ${totalISV18.toFixed(2)}</b> | <span style="color:#4A148C">TOTAL: <b>L. ${totalVentas.toFixed(2)}</b></span></p>
+        <p><span style="color:#6A1B9A">SUMAS:</span> EXONERADO: <b>L. ${totalExonerado.toFixed(2)}</b> | SUB EXENTO: <b>L. ${totalExento.toFixed(2)}</b> | SUB GRAVADO: <b>L. ${totalGravado.toFixed(2)}</b> | ISV (15%): <b>L. ${totalISV15.toFixed(2)}</b> | ISV (18%): <b>L. ${totalISV18.toFixed(2)}</b> ${tieneISV4 ? `| TAS TURISTICA (4%): <b>L. ${totalISV4.toFixed(2)}</b>` : ''} | <span style="color:#4A148C">TOTAL: <b>L. ${totalVentas.toFixed(2)}</b></span></p>
       </div>
     `;
   } // <-- Add this closing brace to properly end the try block
