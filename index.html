@@ -10,17 +10,30 @@
   input[type="date"] { padding: 6px; border-radius: 4px; border: 1px solid #ccc; margin-right: 10px; }
   button { padding: 8px 15px; background: #4A148C; color: white; border: none; border-radius: 4px; cursor: pointer; margin-right: 5px; }
   button:hover { background: #6A1B9A; }
-  table { width: 100%; border-collapse: collapse; margin-top: 20px; }
-  th, td { border: 1px solid #ccc; padding: 6px 8px; font-size: 13px; }
-  th { background: #f4f4f4; }
-  .totales { margin-top: 20px; font-weight: bold; }
+  table { width: 100%; border-collapse: collapse; margin-top: 20px; box-shadow: 0 2px 8px #eee; }
+  th, td { border: 1px solid #ccc; padding: 8px 10px; font-size: 14px; }
+  th { background: linear-gradient(90deg, #6A1B9A 60%, #8E24AA 100%); color: #fff; }
+  tr.total-row { background: #ede7f6; font-weight: bold; }
+  .totales { margin-top: 20px; font-weight: bold; background: #ede7f6; padding: 12px; border-radius: 6px; box-shadow: 0 1px 4px #ddd; }
   @media print {
-    form, button { display: none; }
+    form, button { display: none !important; }
+    body { margin: 0; }
+    .totales { page-break-inside: avoid; }
+    table { page-break-inside: avoid; }
   }
 </style>
 </head>
 <body>
+
 <h1>REPORTE DE VENTAS</h1>
+
+<div id="empresa-info" style="margin-bottom:18px; background:#ede7f6; padding:12px; border-radius:6px; box-shadow:0 1px 4px #ddd;">
+  <strong>EMPRESA:</strong> <span id="nombre-negocio"></span> &nbsp;|
+  <strong>RTN:</strong> <span id="rtn"></span> &nbsp;|
+  <strong>EMAIL:</strong> <span id="correo"></span> &nbsp;|
+  <strong>TELÉFONO:</strong> <span id="telefono"></span> &nbsp;|
+  <strong>DIRECCIÓN:</strong> <span id="direccion"></span>
+</div>
 
 <div>
   <label>Desde:</label>
@@ -38,17 +51,19 @@
 <script>
 const appId = '95304e8a-4c48-4088-82bc-0c19f125b683';
 const apiKey = 'V2-LaT8P-xhyUf-zhU7j-65Lss-Z8Kls-rstYF-NNdYA-UAbSG';
-const table = 'VENTA';
+const tableVenta = 'VENTA';
+const tableConfig = 'CONFIGURACIONES';
 
 async function cargarReporte() {
   const desde = document.getElementById('fechaDesde').value;
   const hasta = document.getElementById('fechaHasta').value;
   const contenedor = document.getElementById('reporte');
-  
+
   contenedor.innerHTML = "<p>Cargando...</p>";
-  
+
   try {
-    const res = await fetch(`https://api.appsheet.com/api/v2/apps/${appId}/tables/${table}/Action`, {
+    // Consulta datos de empresa (CONFIGURACIONES)
+    const resConfig = await fetch(`https://api.appsheet.com/api/v2/apps/${appId}/tables/${tableConfig}/Action`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -56,8 +71,39 @@ async function cargarReporte() {
       },
       body: JSON.stringify({ Action: "Find", Properties: {}, Rows: [] })
     });
-    
-    const data = await res.json();
+    const configData = await resConfig.json();
+    let empresa = {
+      "NOMBRE DEL NEGOCIO": "",
+      "RTN": "",
+      "CORREO ELECTRONICO": "",
+      "TELEFONO": "",
+      "DIRECCION DE MI NEGOCIO": ""
+    };
+    if (Array.isArray(configData) && configData.length > 0) {
+      // Toma la primera fila de la tabla CONFIGURACIONES
+      empresa["NOMBRE DEL NEGOCIO"] = configData[0]["NOMBRE DEL NEGOCIO"] || "";
+      empresa["RTN"] = configData[0]["RTN"] || "";
+      empresa["CORREO ELECTRONICO"] = configData[0]["CORREO ELECTRONICO"] || "";
+      empresa["TELEFONO"] = configData[0]["TELEFONO"] || "";
+      empresa["DIRECCION DE MI NEGOCIO"] = configData[0]["DIRECCION DE MI NEGOCIO"] || "";
+    }
+    // Mostrar datos en el HTML
+    document.getElementById('nombre-negocio').textContent = empresa["NOMBRE DEL NEGOCIO"];
+    document.getElementById('rtn').textContent = empresa["RTN"];
+    document.getElementById('correo').textContent = empresa["CORREO ELECTRONICO"];
+    document.getElementById('telefono').textContent = empresa["TELEFONO"];
+    document.getElementById('direccion').textContent = empresa["DIRECCION DE MI NEGOCIO"];
+
+    // Consulta datos de ventas (VENTA)
+    const resVenta = await fetch(`https://api.appsheet.com/api/v2/apps/${appId}/tables/${tableVenta}/Action`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'ApplicationAccessKey': apiKey
+      },
+      body: JSON.stringify({ Action: "Find", Properties: {}, Rows: [] })
+    });
+    const data = await resVenta.json();
 
     // Filtrar entre fechas si ambas están definidas
     let ventas = data;
@@ -77,9 +123,20 @@ async function cargarReporte() {
       return;
     }
 
-    let totalVentas = 0;
+    // Inicializar sumas
+    let totalVentas = 0, totalExonerado = 0, totalExento = 0, totalGravado = 0, totalISV15 = 0, totalISV18 = 0;
     const filas = ventas.map(v => {
+      const exonerado = parseFloat(v["SUB EXONERADO"]) || 0;
+      const exento = parseFloat(v["SUB EXENT"]) || 0;
+      const gravado = parseFloat(v["SUB GRAVADO"]) || 0;
+      const isv15 = gravado * 0.15;
+      const isv18 = parseFloat(v["ISV (18%)"]) || 0;
       const total = parseFloat(v["VENTA TOTAL"]) || 0;
+      totalExonerado += exonerado;
+      totalExento += exento;
+      totalGravado += gravado;
+      totalISV15 += isv15;
+      totalISV18 += isv18;
       totalVentas += total;
       return `<tr>
         <td>${v.FECHA || ''}</td>
@@ -89,16 +146,28 @@ async function cargarReporte() {
         <td>${v.IDENTIDAD || ''}</td>
         <td>${v["lista de productos"] || ''}</td>
         <td>${v["CANTIDAD DE PRODUCTO"] || ''}</td>
-        <td>${v["SUB EXONERADO"] || ''}</td>
-        <td>${v["SUB EXENT"] || ''}</td>
-        <td>${v["SUB GRAVADO"] || ''}</td>
-        <td>${(v["SUB GRAVADO"]*0.15 || 0).toFixed(2)}</td>
-        <td>${v["ISV (18%)"] || ''}</td>
-        <td>${v["VENTA TOTAL"] || ''}</td>
+        <td>${exonerado.toFixed(2)}</td>
+        <td>${exento.toFixed(2)}</td>
+        <td>${gravado.toFixed(2)}</td>
+        <td>${isv15.toFixed(2)}</td>
+        <td>${isv18.toFixed(2)}</td>
+        <td>${total.toFixed(2)}</td>
         <td>${v.TIPO_PAGO || ''}</td>
         <td>${v["TIPO DE DOCUMENTO"] || ''}</td>
       </tr>`;
     }).join("");
+
+    // Fila de totales
+    const filaTotales = `<tr class="total-row">
+      <td colspan="7">SUMAS</td>
+      <td>${totalExonerado.toFixed(2)}</td>
+      <td>${totalExento.toFixed(2)}</td>
+      <td>${totalGravado.toFixed(2)}</td>
+      <td>${totalISV15.toFixed(2)}</td>
+      <td>${totalISV18.toFixed(2)}</td>
+      <td>${totalVentas.toFixed(2)}</td>
+      <td colspan="2"></td>
+    </tr>`;
 
     contenedor.innerHTML = `
       <table>
@@ -110,17 +179,16 @@ async function cargarReporte() {
             <th>TOTAL</th><th>FORMA DE PAGO</th><th>TIPO DOC</th>
           </tr>
         </thead>
-        <tbody>${filas}</tbody>
+        <tbody>${filas + filaTotales}</tbody>
       </table>
       <div class="totales">
         <p>Total registros: ${ventas.length}</p>
-        <p>Total ventas: L. ${totalVentas.toFixed(2)}</p>
+        <p><span style="color:#6A1B9A">SUMAS:</span> EXONERADO: <b>L. ${totalExonerado.toFixed(2)}</b> | SUB EXENTO: <b>L. ${totalExento.toFixed(2)}</b> | SUB GRAVADO: <b>L. ${totalGravado.toFixed(2)}</b> | ISV (15%): <b>L. ${totalISV15.toFixed(2)}</b> | ISV (18%): <b>L. ${totalISV18.toFixed(2)}</b> | <span style="color:#4A148C">TOTAL: <b>L. ${totalVentas.toFixed(2)}</b></span></p>
       </div>
     `;
-    
-  } catch (err) {
-    contenedor.innerHTML = "<p>Error al cargar los datos.</p>";
-    console.error(err);
+  } // <-- Add this closing brace to properly end the try block
+  catch (error) {
+    contenedor.innerHTML = `<p>Error al cargar el reporte: ${error.message}</p>`;
   }
 }
 </script>
