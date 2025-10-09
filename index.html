@@ -1,151 +1,128 @@
-funciona pero no filtra fechas  , que muestrestre en blanco si las fechas no esta seleccionadas y un boton de  imprimir reporte en pdf ,  :function doGet(e) {
-  const appId = '95304e8a-4c48-4088-82bc-0c19f125b683';
-  const apiKey = 'V2-LaT8P-xhyUf-zhU7j-65Lss-Z8Kls-rstYF-NNdYA-UAbSG';
-  const table = 'VENTAFF';
-
-  const desde = e.parameter.desde ? new Date(e.parameter.desde) : null;
-  const hasta = e.parameter.hasta ? new Date(e.parameter.hasta) : null;
-
-  const url = `https://api.appsheet.com/api/v2/apps/${appId}/tables/${table}/Action`;
-  const payload = {
-    Action: "Find",
-    Properties: {},
-    Rows: []
-  };
-
-  const options = {
-    method: 'post',
-    contentType: 'application/json',
-    payload: JSON.stringify(payload),
-    headers: { 'ApplicationAccessKey': apiKey },
-    muteHttpExceptions: true
-  };
-
-  const response = UrlFetchApp.fetch(url, options);
-  let ventas = [];
-  try {
-    ventas = JSON.parse(response.getContentText());
-  } catch (e) {
-    return HtmlService.createHtmlOutput("Error al leer datos del servidor.");
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<title>Reporte de Ventas</title>
+<style>
+  body { font-family: Arial; margin: 40px; color: #333; }
+  h1 { color: #4A148C; }
+  label { margin-right: 5px; }
+  input[type="date"] { padding: 6px; border-radius: 4px; border: 1px solid #ccc; margin-right: 10px; }
+  button { padding: 8px 15px; background: #4A148C; color: white; border: none; border-radius: 4px; cursor: pointer; margin-right: 5px; }
+  button:hover { background: #6A1B9A; }
+  table { width: 100%; border-collapse: collapse; margin-top: 20px; }
+  th, td { border: 1px solid #ccc; padding: 6px 8px; font-size: 13px; }
+  th { background: #f4f4f4; }
+  .totales { margin-top: 20px; font-weight: bold; }
+  @media print {
+    form, button { display: none; }
   }
+</style>
+</head>
+<body>
+<h1>REPORTE DE VENTAS</h1>
 
-  // Filtrado entre fechas
-  if (desde && hasta) {
-    ventas = ventas.filter(v => {
-      const fecha = new Date(v["FECHA"]);
-      return fecha >= desde && fecha <= hasta;
+<div>
+  <label>Desde:</label>
+  <input type="date" id="fechaDesde">
+  <label>Hasta:</label>
+  <input type="date" id="fechaHasta">
+  <button onclick="cargarReporte()">Filtrar</button>
+  <button onclick="window.print()">Imprimir / PDF</button>
+</div>
+
+<div id="reporte">
+  <p>Seleccione un rango de fechas y presione "Filtrar" para ver el reporte.</p>
+</div>
+
+<script>
+const appId = '95304e8a-4c48-4088-82bc-0c19f125b683';
+const apiKey = 'V2-LaT8P-xhyUf-zhU7j-65Lss-Z8Kls-rstYF-NNdYA-UAbSG';
+const table = 'VENTAFF';
+
+async function cargarReporte() {
+  const desde = document.getElementById('fechaDesde').value;
+  const hasta = document.getElementById('fechaHasta').value;
+  const contenedor = document.getElementById('reporte');
+  
+  contenedor.innerHTML = "<p>Cargando...</p>";
+  
+  try {
+    const res = await fetch(`https://api.appsheet.com/api/v2/apps/${appId}/tables/${table}/Action`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'ApplicationAccessKey': apiKey
+      },
+      body: JSON.stringify({ Action: "Find", Properties: {}, Rows: [] })
     });
-  }
+    
+    const data = await res.json();
 
-  const negocio = getDatosNegocio(appId, apiKey);
-  const html = construirHTML(negocio, ventas, desde, hasta);
+    // Filtrar entre fechas si ambas están definidas
+    let ventas = data;
+    if (desde && hasta) {
+      const d = new Date(desde);
+      const h = new Date(hasta);
+      ventas = data.filter(v => {
+        const f = new Date(v.FECHA);
+        return f >= d && f <= h;
+      });
+    } else {
+      ventas = []; // si no hay fechas, mostrar en blanco
+    }
 
-  return HtmlService.createHtmlOutput(html).setTitle("Reporte de Ventas");
-}
+    if (ventas.length === 0) {
+      contenedor.innerHTML = "<p>No hay ventas registradas en el rango seleccionado.</p>";
+      return;
+    }
 
-function getDatosNegocio(appId, apiKey) {
-  try {
-    const url = `https://api.appsheet.com/api/v2/apps/${appId}/tables/CONFIGURACIONES/Action`;
-    const payload = { Action: "Find", Properties: {}, Rows: [] };
-    const options = {
-      method: 'post',
-      contentType: 'application/json',
-      payload: JSON.stringify(payload),
-      headers: { 'ApplicationAccessKey': apiKey },
-      muteHttpExceptions: true
-    };
-    const response = UrlFetchApp.fetch(url, options);
-    const data = JSON.parse(response.getContentText());
-    return data[0] || {};
-  } catch (e) {
-    return {};
-  }
-}
+    let totalVentas = 0;
+    const filas = ventas.map(v => {
+      const total = parseFloat(v["VENTA TOTAL"]) || 0;
+      totalVentas += total;
+      return `<tr>
+        <td>${v.FECHA || ''}</td>
+        <td>${v.FACTURA || ''}</td>
+        <td>${v.CLIENTE || ''}</td>
+        <td>${v["TIPO DE CLIENTE"] || ''}</td>
+        <td>${v.IDENTIDAD || ''}</td>
+        <td>${v["lista de productos"] || ''}</td>
+        <td>${v["CANTIDAD DE PRODUCTO"] || ''}</td>
+        <td>${v["SUB EXONERADO"] || ''}</td>
+        <td>${v["SUB EXENT"] || ''}</td>
+        <td>${v["SUB GRAVADO"] || ''}</td>
+        <td>${(v["SUB GRAVADO"]*0.15 || 0).toFixed(2)}</td>
+        <td>${v["ISV (18%)"] || ''}</td>
+        <td>${v["VENTA TOTAL"] || ''}</td>
+        <td>${v.TIPO_PAGO || ''}</td>
+        <td>${v["TIPO DE DOCUMENTO"] || ''}</td>
+      </tr>`;
+    }).join("");
 
-function construirHTML(negocio, ventas, desde, hasta) {
-  let totalVentas = 0;
-
-  const filas = ventas.map(v => {
-    const total = parseFloat(v["VENTA TOTAL"]) || 0;
-    totalVentas += total;
-    return `
-      <tr>
-        <td>${v["FECHA"] || ""}</td>
-        <td>${v["FACTURA"] || ""}</td>
-        <td>${v["CLIENTE"] || ""}</td>
-        <td>${v["TIPO DE CLIENTE"] || ""}</td>
-        <td>${v["IDENTIDAD"] || ""}</td>
-        <td>${v["lista de productos"] || ""}</td>
-        <td>${v["CANTIDAD DE PRODUCTO"] || ""}</td>
-        <td>${v["SUB EXONERADO"] || ""}</td>
-        <td>${v["SUB EXENT"] || ""}</td>
-        <td>${v["SUB GRAVADO"] || ""}</td>
-        <td>${(v["SUB GRAVADO"] * 0.15 || 0).toFixed(2)}</td>
-        <td>${v["ISV (18%)"] || ""}</td>
-        <td>${v["VENTA TOTAL"] || ""}</td>
-        <td>${v["TIPO_PAGO"] || ""}</td>
-        <td>${v["TIPO DE DOCUMENTO"] || ""}</td>
-      </tr>
+    contenedor.innerHTML = `
+      <table>
+        <thead>
+          <tr>
+            <th>FECHA</th><th>FACTURA</th><th>CLIENTE</th><th>TIPO DE CLIENTE</th>
+            <th>IDENTIDAD</th><th>PRODUCTO</th><th>CANTIDAD</th><th>SUB EXONERADO</th>
+            <th>SUB EXENTO</th><th>SUB GRAVADO</th><th>ISV (15%)</th><th>ISV (18%)</th>
+            <th>TOTAL</th><th>FORMA DE PAGO</th><th>TIPO DOC</th>
+          </tr>
+        </thead>
+        <tbody>${filas}</tbody>
+      </table>
+      <div class="totales">
+        <p>Total registros: ${ventas.length}</p>
+        <p>Total ventas: L. ${totalVentas.toFixed(2)}</p>
+      </div>
     `;
-  }).join("");
-
-  const html = `
-  <!DOCTYPE html>
-  <html>
-  <head>
-    <meta charset="UTF-8">
-    <title>Reporte de Ventas</title>
-    <style>
-      body { font-family: Arial; margin: 40px; color: #333; }
-      h1 { color: #4A148C; }
-      input[type="date"] { padding: 6px; border-radius: 4px; border: 1px solid #ccc; }
-      button { padding: 8px 15px; background: #4A148C; color: white; border: none; border-radius: 4px; cursor: pointer; }
-      button:hover { background: #6A1B9A; }
-      table { width: 100%; border-collapse: collapse; margin-top: 20px; }
-      th, td { border: 1px solid #ccc; padding: 6px 8px; font-size: 13px; }
-      th { background: #f4f4f4; }
-      .header p { margin: 2px 0; }
-      .totales { margin-top: 20px; font-weight: bold; }
-    </style>
-  </head>
-  <body>
-    <h1>REPORTE DE VENTAS</h1>
-    <div class="header">
-      <p><b>EMPRESA:</b> ${negocio["NOMBRE DEL NEGOCIO"] || "N/A"}</p>
-      <p><b>RTN:</b> ${negocio["RTN"] || "N/A"}</p>
-      <p><b>EMAIL:</b> ${negocio["CORREO ELECTRONICO"] || "N/A"}</p>
-      <p><b>TELÉFONO:</b> ${negocio["TELEFONO"] || "N/A"}</p>
-      <p><b>DIRECCIÓN:</b> ${negocio["DIRECCION DE MI NEGOCIO"] || "N/A"}</p>
-      <p><b>FECHA DE REPORTE:</b> ${new Date().toLocaleString()}</p>
-    </div>
-
-    <form method="get">
-      <label>Desde:</label>
-      <input type="date" name="desde" value="${desde ? desde.toISOString().split('T')[0] : ''}" required>
-      <label>Hasta:</label>
-      <input type="date" name="hasta" value="${hasta ? hasta.toISOString().split('T')[0] : ''}" required>
-      <button type="submit">Filtrar</button>
-    </form>
-
-    ${ventas.length > 0 ? `
-    <table>
-      <thead>
-        <tr>
-          <th>FECHA</th><th>FACTURA</th><th>CLIENTE</th><th>TIPO DE CLIENTE</th>
-          <th>IDENTIDAD</th><th>PRODUCTO</th><th>CANTIDAD</th><th>SUB EXONERADO</th>
-          <th>SUB EXENTO</th><th>SUB GRAVADO</th><th>ISV (15%)</th><th>ISV (18%)</th>
-          <th>TOTAL</th><th>FORMA DE PAGO</th><th>TIPO DOC</th>
-        </tr>
-      </thead>
-      <tbody>${filas}</tbody>
-    </table>
-    <div class="totales">
-      <p>Total registros: ${ventas.length}</p>
-      <p>Total ventas: L. ${totalVentas.toFixed(2)}</p>
-    </div>
-    ` : `<p><b>No hay ventas registradas en el rango seleccionado.</b></p>`}
-  </body>
-  </html>
-  `;
-  return html;
+    
+  } catch (err) {
+    contenedor.innerHTML = "<p>Error al cargar los datos.</p>";
+    console.error(err);
+  }
 }
+</script>
+</body>
+</html>
